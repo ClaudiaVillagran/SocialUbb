@@ -100,12 +100,136 @@ const login = (req, res) => {
                 token
             });
         })
+}
+const profile = (req, res) => {
+    //recibir el parametro de id por url
+    const id = req.params.id;
 
-    
+    //sacar los datos del estudiante
+    Student.findById(id)
+        .select({"password":0})
+        .exec((error, studentProfile) =>{
+        if (error ||!studentProfile) {
+            return res.status(404).send("error al encontrar usuario")
+        }
+        //devolver datos estudiante
+        //posteriormente: devolver los followers
+        return res.status(200).json({
+            status: "success",
+            menssage:"profilando...",
+            student: studentProfile
+        })
+
+    })    
+}
+const list = (req, res) => {
+    //controlar en que pagina estamos
+    let page = 1;
+
+    if (req.params.page) {
+        page = req.params.page;
+    }
+
+    page = parseInt(page);
+
+    //Consulta con mongoose paginate
+    let itemsPerPage = 2;
+
+    const opciones = {
+        page: page,
+        limit: itemsPerPage,
+        sort: { _id: -1 }
+    };
+
+    Student.paginate({}, opciones, (error, students, total) => {
+        if (error ||!students) {
+            return res.status(404).send(error,"error al encontrar usuario")
+        }
+        console.log(students.total)
+        //devolver resultado
+        return res.status(200).json({
+                    status: "success",
+                    menssage:"listando...",
+                    students: students,
+                    itemsPerPage,
+                    totalPages: Math.ceil(students.total / itemsPerPage)
+                })
+    })
 }
 
+const update = (req, res) => {
+    //recorger la info a actualizar
+    const studentIdentity = req.student;
+    const studentToUpdate = req.body;
+    //eliminar campos sobrantes
+    delete studentToUpdate.iat;
+    delete studentToUpdate.exp;
+
+    //comprobar si existe el usuario
+    Student.find({
+        $or: [
+            {name: studentIdentity.name.toLowerCase()},
+            {email: studentIdentity.email.toLowerCase()}
+        ]
+    }).exec(async(error, students) => {
+        if (error) {
+            return res.status(500).send( "error al crear usuario")
+        }
+        
+        let studentIsset = false;
+
+        students.forEach(student => {
+            if (student && student.id != studentIdentity.id) {
+                studentIsset = true;
+            }
+        })
+        if (studentIsset) {
+            return res.status(200).send( "El usuario ya existe")
+        }
+
+        //si actualiza la password, cifrar
+        if (studentToUpdate.password) {
+            let pwd = await bcrypt.hash(params.password, 10)
+            studentToUpdate.password=pwd
+        }
+        
+        try {
+             //buscar y actualizar
+            let studentUpdated = await Student.findByIdAndUpdate(studentIdentity.id, studentToUpdate);
+
+            if (!studentUpdated) {
+                return res.status(500).send( "error al actualizar usuario")
+            }
+            return res.status(200).json({
+                status: "success",
+                menssage:"Actualizando...",
+                student: studentUpdated
+            });
+
+        } catch (error) {
+            return res.status(500).json({
+                status: "success",
+                menssage:"Error al actualizar."
+            });
+        }
+    });
+}
+
+const uploadImage = (req, res) => {
+    return res.status(200).send({
+        status: "success",
+        menssage:"imagen cargada",
+        student: req.student,
+        file: req.file,
+        files: req.files
+    })
+}
 module.exports = {
     pruebaStudent,
     register,
-    login
+    login,
+    profile,
+    list,
+    update,
+    uploadImage
 }

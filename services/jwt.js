@@ -13,7 +13,7 @@ const createToken = (student) => {
         email: student.email,
         image: student.image,
         iat: moment().unix(),
-        exp: moment().add(30, "days").unix
+        exp: moment().add(30, "days").unix()
     };
     //devolver jwt token codificado
     return jwt.encode(payload, secret);

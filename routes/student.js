@@ -1,10 +1,30 @@
 const express = require ('express');
 const api = express.Router();
+const multer = require('multer');
 const studentController = require ('../controllers/student');
-const auth = require('../middlewares/auth');
+const check = require('../middlewares/auth');
 
-api.get("/pruebaStudent", auth.auth, studentController.pruebaStudent);
+//configuracion de multer
+
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        cb(null, './uploads/profilePictures')
+    },
+    filename: function (req, file, cb) {
+        cb(null, "profilePicture"+Date.now()+"-"+ file.originalname)
+    }
+});
+
+const uploadImage = multer({storage});
+
+api.get("/pruebaStudent", check.auth, studentController.pruebaStudent);
 api.post("/register", studentController.register);
 api.post("/login", studentController.login);
+api.get("/profile/:id", check.auth, studentController.profile);
+//page es un parametro opcional
+api.get("/list/:page?", check.auth, studentController.list);
+api.put("/update", check.auth, studentController.update);
+//[check.auth, uploadImage.single("upload0")]  ---> los corchetes para usar varios middlewares
+api.post("/uploadImage",[check.auth, uploadImage.single("upload0")], studentController.uploadImage);
 
 module.exports = api;
