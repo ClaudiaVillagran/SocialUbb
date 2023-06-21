@@ -1,6 +1,11 @@
 const bcrypt = require("bcrypt")
 const Student = require('../models/student')
 const jwt = require('../services/jwt')
+const fs = require('fs');
+const path = require('path');
+const followService = require('../services/followStudentIds');
+const Publication = require('../models/publication');
+const Follow = require('../models/follow');
 
 const pruebaStudent = (req, res) => {
     return res.status(200).send({
@@ -108,19 +113,23 @@ const profile = (req, res) => {
     //sacar los datos del estudiante
     Student.findById(id)
         .select({"password":0})
-        .exec((error, studentProfile) =>{
+        .exec(async(error, studentProfile) =>{
         if (error ||!studentProfile) {
             return res.status(404).send("error al encontrar usuario")
         }
+        //info de seguimiento
+                    //primero parametro sera el usuario identificado y el segundo el usuario de la url(perfil qu estamos viendo)
+        const followInfo = await followService.followThisStudent(req.student.id, id);
         //devolver datos estudiante
-        //posteriormente: devolver los followers
         return res.status(200).json({
             status: "success",
             menssage:"profilando...",
-            student: studentProfile
+            student: studentProfile,
+            followig: followInfo.following,
+            follower: followInfo.follower
         })
 
-    })    
+    })
 }
 const list = (req, res) => {
     //controlar en que pagina estamos
@@ -133,28 +142,55 @@ const list = (req, res) => {
     page = parseInt(page);
 
     //Consulta con mongoose paginate
-    let itemsPerPage = 2;
+    let itemsPerPage = 5;
 
-    const opciones = {
-        page: page,
-        limit: itemsPerPage,
-        sort: { _id: -1 }
-    };
-
-    Student.paginate({}, opciones, (error, students, total) => {
+    Student.find().select('-email -password -__v').sort('_id').paginate(page, itemsPerPage, async(error, students, total) => {
         if (error ||!students) {
-            return res.status(404).send(error,"error al encontrar usuario")
+            return res.status(404).send("error al encontrar usuario")
         }
-        console.log(students.total)
-        //devolver resultado
-        return res.status(200).json({
-                    status: "success",
-                    menssage:"listando...",
-                    students: students,
-                    itemsPerPage,
-                    totalPages: Math.ceil(students.total / itemsPerPage)
-                })
+        let followStudentIds = await followService.followStudentIds(req.student.id);
+        
+            //devolver resultado
+            return res.status(200).json({
+                       status: "success",
+                         menssage:"listando...",
+                         students: students,
+                         itemsPerPage,
+                         totalPages: Math.ceil(students.total / itemsPerPage),
+                         student_following: followStudentIds.following,
+                        student_follow_me: followStudentIds.followers
+    
+            })
+
     })
+
+
+    // const opciones = {
+    //     page: page,
+    //     limit: itemsPerPage,
+    //     sort: { _id: -1 }
+    // };
+
+    // Student.paginate({}, opciones, async(error, students, total) => {
+    //     if (error ||!students) {
+    //         return res.status(404).send(error,"error al encontrar usuario")
+    //     }
+
+    //     //sacar un array de estudiantes que sigo y me siguen
+    //     let followStudentIds = await followService.followStudentIds(req.student.id);
+
+    //     //devolver resultado
+    //     return res.status(200).json({
+    //                 status: "success",
+    //                 menssage:"listando...",
+    //                 students: students,
+    //                 itemsPerPage,
+    //                 totalPages: Math.ceil(students.total / itemsPerPage),
+    //                 student_following: followStudentIds.following,
+    //                 student_follow_me: followStudentIds.followers
+
+    //             })
+    // });
 }
 
 const update = (req, res) => {
@@ -191,6 +227,8 @@ const update = (req, res) => {
         if (studentToUpdate.password) {
             let pwd = await bcrypt.hash(params.password, 10)
             studentToUpdate.password=pwd
+        }else{
+            delete studentToUpdate.password
         }
         
         try {
@@ -216,14 +254,83 @@ const update = (req, res) => {
 }
 
 const uploadImage = (req, res) => {
-    return res.status(200).send({
-        status: "success",
-        menssage:"imagen cargada",
-        student: req.student,
-        file: req.file,
-        files: req.files
-    })
+
+    //recoger el fichero de imagen y comprobar si existe
+    if (!req.file) {
+        return res.status(404).send( "no ha agregado ninguna imagen")
+    }
+    //conseguir el nombre del archivo
+    const image = req.file.originalname;
+
+    //sacar la extension del archivo
+    const imageSplit = image.split(".");
+    const extension = imageSplit[1];
+
+    //comprobar si es jpg
+    if (extension != "jpg" && extension!= "jpeg"  && extension != "png" && extension != "gif") {
+        //si no es jpg, borrar la imagen
+        const filePath = req.file.path;
+        const fileDeleted = fs.unlinkSync(filePath);
+
+        return res.status(400).send("La extension del archivo no es valido");
+    }
+
+    //si es jpg, agregar la imagen a la base de datos
+    Student.findByIdAndUpdate({ _id: req.student.id}, {image: req.file.filename}, {new: true}, (error, studentUpdated) => {
+            if (error || !studentUpdated) {
+                return res.status(500).send( "error al subir la foto de perfil")
+            }
+            return res.status(200).json({
+                status: "success",
+                menssage:"Actualizando...",
+                student: studentUpdated,
+                file: req.file,
+                image
+            });
+        });
 }
+
+const profilePicture = (req, res) => {
+
+    //sacar el parametro de la url
+    const file = req.params.file;
+
+    //mostrar el path de la imagen
+    const filePath = "./uploads/profilePictures/" + file;
+    console.log(filePath);
+    //comprobar si existe la imagen
+    fs.stat(filePath, (error, exists) => {
+        if (error || !exists) {
+            return res.status(404).send( "no existe la imagen")
+        }
+        //devolver la imagen
+        return res.sendFile(path.resolve(filePath));
+
+    });
+    
+};
+
+const counter = async (req, res) => {
+    let studentId = req.student.id;
+    if (req.params.id) {
+        studentId = req.params.id;
+    }
+    try {
+        const followingCount = await Follow.count({'student': studentId});
+        const followedCount = await Follow.count({'followed': studentId});
+        const publicationsCount = await Publication.count({'student': studentId});
+
+        return res.status(200).send({
+            studentId,
+            followingCount,
+            followedCount,
+            publicationsCount
+        })
+    } catch (error) {
+        return res.status(500).send(error);
+    } 
+
+};
 module.exports = {
     pruebaStudent,
     register,
@@ -231,5 +338,7 @@ module.exports = {
     profile,
     list,
     update,
-    uploadImage
+    uploadImage,
+    profilePicture,
+    counter
 }

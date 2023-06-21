@@ -26,5 +26,7 @@ api.get("/list/:page?", check.auth, studentController.list);
 api.put("/update", check.auth, studentController.update);
 //[check.auth, uploadImage.single("upload0")]  ---> los corchetes para usar varios middlewares
 api.post("/uploadImage",[check.auth, uploadImage.single("upload0")], studentController.uploadImage);
+api.get("/profilePicture/:file", studentController.profilePicture);
+api.get('/counter/:id', check.auth, studentController.counter);
 
 module.exports = api;
